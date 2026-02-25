@@ -8,6 +8,27 @@ function incorrect(title, model)
   model:warning(title)
 end
 
+-- Adds all objects in `objects` to the page in a single undoable step.
+function batch_creation(model, label, objects)
+  if #objects == 0 then return end
+  local page = model:page()
+  local layer = page:active(model.vno)
+  local t = {
+    label = label,
+    pno = model.pno,
+    vno = model.vno,
+    original = page:clone(),
+    undo = revertOriginal,
+    redo = _G.revertFinal,
+  }
+  local final = page:clone()
+  for _, obj in ipairs(objects) do
+    final:insert(nil, obj, 2, layer)
+  end
+  t.final = final
+  model:register(t)
+end
+
 function boundingTriangle(points,model)
 	local minX, minY, maxX, maxY = math.huge, math.huge, -math.huge, -math.huge
 	
@@ -128,40 +149,35 @@ function Urquhart(model)
 end
 
 
-function k_mutual_neighbor(model)
-  local k = model:getString("Input k: ")
-  if not k then return end
+function get_k_from_user(model,prompt,float)
+  local k = model:getString(prompt)
+  if not k then return nil end
   k = tonumber(k)
-  if k < 1 then
+  if k <=0 then
    incorrect("Value should be a positive integer",model)
-   return
+   return nil
   end
-  k = math.floor(tonumber(k))
-  run(model,"k",k)
+  
+  if not float then
+    return math.floor(tonumber(k))
+  end
+  return k
+end
+  
+
+function k_mutual_neighbor(model)
+  local k =get_k_from_user(model,"Input k: ")
+  if k  then run(model,"k",k) end
 end
 
 function kth_mutual_neighbor(model)
-  local k = model:getString("Input k: ")
-  if not k then return end
-  k = tonumber(k)
-  if k < 1 then
-   incorrect("Value should be a positive integer",model)
-   return
-  end
-  k = math.floor(tonumber(k))
-  run(model,"kthmutual",k)
+  local k =get_k_from_user(model,"Input k: ")
+  if k  then run(model,"kthmutual",k) end
 end
 
 function symmetric_k_nearest_neighbor(model)
-  local k = model:getString("Input k: ")
-  if not k then return end
-  k = tonumber(k)
-  if k < 1 then
-   incorrect("Value should be a positive integer",model)
-   return
-  end
-  k = math.floor(tonumber(k))
-  run(model,"symmetric_k",k)
+  local k =get_k_from_user(model,"Input k: ")
+  if k  then run(model,"symmetric_k",k) end
 end
 
 function symmetric_nearest_neighbor(model)
@@ -169,52 +185,24 @@ function symmetric_nearest_neighbor(model)
 end
 
 function symmetric_kth_nearest_neighbor(model)
-  local k = model:getString("Input k: ")
-  if not k then return end
-  k = tonumber(k)
-  if k < 1 then
-   incorrect("Value should be a positive integer",model)
-   return
-  end
-  k = math.floor(tonumber(k))
-  run(model,"symmetric_kth",k)
+  local k =get_k_from_user(model,"Input k: ")
+  if k  then run(model,"symmetric_kth",k) end
 end
 
 
 function kth_nearest_neighbor(model)
-  local k = model:getString("Input k: ")
-  if not k then return end
-  k = tonumber(k)
-  if k < 1 then
-   incorrect("Value should be a positive integer",model)
-   return
-  end
-  k = math.floor(tonumber(k))
-  run(model,"kth",k)
+  local k =get_k_from_user(model,"Input k: ") 
+   if k  then run(model,"kth",k) end
 end
 
 function k_nearest_neighbor(model)
-  local k = model:getString("Input k: ")
-  if not k then return end
-  k = tonumber(k)
-  if k < 1 then
-   incorrect("Value should be a positive integer",model)
-   return
-  end
-  k = math.floor(tonumber(k))
-  run(model,"knearest",k)
+  local k =get_k_from_user(model,"Input k: ") 
+  if k  then run(model,"knearest",k) end
 end
 
 function yao_graph(model)
-  local k = model:getString("Number of sectors: ")
-  if not k then return end
-  k = tonumber(k)
-  if k < 1 then
-   incorrect("Value should be a positive integer",model)
-   return
-  end
-  k = math.floor(tonumber(k))
-  run(model, "yao", k)
+  local k =get_k_from_user(model,"Input numbert of sectors: ") 
+  if k  then run(model, "yao", k) end
 end
 
 
@@ -223,10 +211,10 @@ function epsilon_neighbor(model)
   if not epsi then return end
   epsi = tonumber(epsi)
   if epsi <= 0 then
-   incorrect("Value should be positive", model)
+   incorrect("Value should be positive", model, true)
    return
   end
-  run(model,"epsilon", nil, epsi)
+  if epsi then run(model,"epsilon", nil, epsi) end
 end
 
 function findNearest(point,vertices)
@@ -358,6 +346,7 @@ function run(model, version, k, epsi )
       totalDist = totalDist + math.sqrt(edgeLength(point1,findNearest(point1,vertices)[1]))
     end
     local lineLen = totalDist / (2*#vertices)
+    local sectorObjs = {}
     for _, point in ipairs(vertices) do
       for s = 0, k - 1 do
         local angle = s * sectorAngle
@@ -369,9 +358,10 @@ function run(model, version, k, epsi )
         local obj = ipe.Path(model.attributes, { shape })
         obj:set("dashstyle", "dashed")
         obj:set("stroke", "red")
-        model:creation("Yao sector", obj)
+        table.insert(sectorObjs, obj)
       end
     end
+    batch_creation(model, "Yao sectors", sectorObjs)
     for _, point1 in ipairs(vertices) do
       local nearestInSector = {}
       local sectorsDistance = {}
@@ -539,13 +529,15 @@ function run(model, version, k, epsi )
 
   
   if version == "epsilon" then
+    local circleObjs = {}
     for _, point in ipairs(vertices) do
       local circle = { type = "ellipse", ipe.Matrix(epsi, 0, 0, epsi, point.x, point.y) }
       local obj = ipe.Path(model.attributes, { circle })
       obj:set("dashstyle", "dashed")
       obj:set("stroke", "red")
-      model:creation("Epsilon circle", obj)
+      table.insert(circleObjs, obj)
     end
+    batch_creation(model, "Epsilon circles", circleObjs)
     epsi = epsi*epsi
     for i, point1 in ipairs(vertices) do
       for j, point2 in ipairs(vertices) do
@@ -612,14 +604,16 @@ function run(model, version, k, epsi )
     end
     
       -- Draw circles
+    local circleObjs = {}
     for _, point in ipairs(vertices) do
       local r = radii[point]
       local circle = { type = "ellipse", ipe.Matrix(r, 0, 0, r, point.x, point.y) }
       local obj = ipe.Path(model.attributes, { circle })
       obj:set("dashstyle", "dashed")
       obj:set("stroke", "red")
-      model:creation("Influence  region", obj)
+      table.insert(circleObjs, obj)
     end
+    batch_creation(model, "Influence regions", circleObjs)
     
     for i, point1 in ipairs(vertices) do
       for j, point2 in ipairs(vertices) do
@@ -633,16 +627,16 @@ function run(model, version, k, epsi )
     end
   end
   
+  local edgeObjs = {}
   for _, t in ipairs(edges) do
     local verts = {
         ipe.Vector(t.a.x, t.a.y),
         ipe.Vector(t.b.x, t.b.y),
     }
-    
     local shape = create_shape_from_vertices_open(verts, model)
-    local path = ipe.Path(model.attributes, { shape })
-    model:creation("Nearest Neighbor Edge", path)
+    table.insert(edgeObjs, ipe.Path(model.attributes, { shape }))
   end
+  batch_creation(model, "Neighborhood Graph Edges", edgeObjs)
 end
 
 
@@ -736,6 +730,7 @@ function Ur(model)
     table.insert(badEdges, edges[maxIndex])
   end
   
+  local edgeObjs = {}
   for _, t in ipairs(triangles) do
     for _, e in ipairs({ { t.a, t.b }, { t.b, t.c }, { t.c, t.a } }) do
       local bad = false
@@ -744,10 +739,11 @@ function Ur(model)
       end
       if not bad then
         local shape = create_shape_from_vertices_open({ ipe.Vector(e[1].x, e[1].y), ipe.Vector(e[2].x, e[2].y) }, model)
-        model:creation("Urquhart Edge", ipe.Path(model.attributes, { shape }))
+        table.insert(edgeObjs, ipe.Path(model.attributes, { shape }))
       end
     end
   end
+  batch_creation(model, "Urquhart Edges", edgeObjs)
 end
 
 methods = {
