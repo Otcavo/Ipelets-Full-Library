@@ -13,6 +13,38 @@ revertOriginal = _G.revertOriginal
 -- ========================================================================================
 --                                      Support
 -- ========================================================================================
+
+function batch_creation(model, label, point_colors, objects)
+  local page = model:page()
+  local layer = page:active(model.vno)
+  local t = {
+    label = label,
+    pno = model.pno,
+    vno = model.vno,
+    original = page:clone(),
+    undo = revertOriginal,
+    redo = _G.revertFinal,
+  }
+  local final = page:clone()
+  
+  if point_colors then
+    for i, obj, sel, lyr in final:objects() do
+      if point_colors[i] then
+        obj:set("stroke", point_colors[i])
+        obj:set("fill", point_colors[i])
+      end
+    end
+  end
+  
+  if objects then
+    for _, obj in ipairs(objects) do
+      final:insert(nil, obj, 2, layer)
+    end
+  end
+  t.final = final
+  model:register(t)
+end
+
 -- Returns a list of vectors of all the selected points
 function get_unique_selected_points(model)
   local page = model:page()
@@ -209,6 +241,8 @@ local function remove_pair(ids, i, j)
   table.remove(ids, j)
   table.remove(ids, i)
 end
+
+
 -- ========================================================================================
 --                                      K-Means
 -- ========================================================================================
@@ -381,8 +415,8 @@ end
 -- Action: K-means clustering and recolor selected marks
 local function cmd_kmeans(model)
   local page = model:page()
-  local points, sel_indices = collect_selected_points(page)
-
+  local points, selected = collect_selected_points(page)
+  
   if #points == 0 then
     model:warning("Select mark symbols to cluster!")
     return
@@ -394,47 +428,31 @@ local function cmd_kmeans(model)
     model:warning("K must be <= number of selected marks!")
     return
   end
+  
+  
 
   local assign, centroids = kmeans(points, k, 100)
   if not assign then
     model:warning("K-means failed.")
     return
   end
-
-  -- yay colors (I have brain damage) 
+  
+  local point_colors = {}
+  local new_objects = {}
+  local clusterPoints = {}
   local colors = { "red", "blue", "green", "orange", "purple", "cyan", "brown", "magenta", "navy", "gray" }
-  -- according to the images I saw, its supposed to be a cricle, but thats really hard
-  -- also this part was by far the biggest headache, it just did not want to work
-  local t = { label = "K-means: color selected marks by cluster",
-              pno = model.pno,
-              vno = model.vno,
-              original = model:page():clone(),
-              final = model:page():clone(),
-              undo = revertOriginal,
-              redo = _G.revertFinal }
   
-  local idx = 1
-  for i, obj, sel, layer in t.final:objects() do
-    if sel and obj:type() == "reference" then
-      local c = assign[idx]
-      local color = colors[((c - 1) % #colors) + 1]
-      obj:set("stroke", color)
-      obj:set("fill", color)
-      idx = idx + 1
-    end
+  for i, index in ipairs(selected) do
+    local col = assign[i]
+    point_colors[index] = colors[((col - 1) % #colors) + 1]
   end
-  
-  model:register(t) 
-  
   
   for j = 1, k do
     local color = colors[((j - 1) % #colors) + 1]
     local stroke = ipe.Reference(model.attributes, "mark/cross(sx)", ipe.Vector(centroids[j][1] ,centroids[j][2]))
     stroke:set("stroke", color)
-    model:creation("Centroid", stroke)
+    table.insert(new_objects, stroke)
   end
-  
-  local clusterPoints = {}
   
   for i=1, k do
     clusterPoints[i]={}
@@ -444,7 +462,7 @@ local function cmd_kmeans(model)
       end
     end
   end
-  
+
   for j=1, k do
     local color = colors[((j - 1) % #colors) + 1]
     if #clusterPoints[j]>= 3 then
@@ -457,15 +475,18 @@ local function cmd_kmeans(model)
       local path = ipe.Path(model.attributes, { shape })
       path:set("stroke", color)
       path:set("dashstyle", "dashed")
-      model:creation("Cluster hull", path)
+      table.insert(new_objects,path)
     end
   end
+  
+  batch_creation(model, "K-means", point_colors, new_objects)
+  
 end
 
--- Action: K-means++ or something im tried
+-- Action: K-means++
 local function cmd_kmeanspp(model)
   local page = model:page()
-  local points, sel_indices = collect_selected_points(page)
+  local points, selected = collect_selected_points(page)
 
   if #points == 0 then
     model:warning("Select mark symbols to cluster!")
@@ -493,38 +514,23 @@ local function cmd_kmeanspp(model)
     return
   end
 
-  -- yay colors again (its 2am and I have CS exam at 9)
   local colors = { "red", "blue", "green", "orange", "purple", "cyan", "brown", "magenta", "navy", "gray" }
-  -- too lazy to code a srko, you get colorfull dots intead, have a feild day
-  local t = { label = "K-means++: color selected marks by cluster",
-              pno = model.pno,
-              vno = model.vno,
-              original = model:page():clone(),
-              final = model:page():clone(),
-              undo = revertOriginal,
-              redo = _G.revertFinal }
+  local point_colors = {}
+  local new_objects = {}
+  local clusterPoints = {}
   
-  local idx = 1
-  for i, obj, sel, layer in t.final:objects() do
-    if sel and obj:type() == "reference" then
-      local c = assign[idx]
-      local color = colors[((c - 1) % #colors) + 1]
-      obj:set("stroke", color)
-      obj:set("fill", color)
-      idx = idx + 1
-    end
+  for i, index in ipairs(selected) do
+    local col = assign[i]
+    point_colors[index] = colors[((col - 1) % #colors) + 1]
   end
-  
-  model:register(t)
   
   for j = 1, k do
     local color = colors[((j - 1) % #colors) + 1]
     local stroke = ipe.Reference(model.attributes, "mark/cross(sx)", ipe.Vector(centroids[j][1] ,centroids[j][2]))
     stroke:set("stroke", color)
-    model:creation("Centroid", stroke)
+    table.insert(new_objects, stroke)
   end
   
-  local clusterPoints = {}
   
   for i=1, k do
     clusterPoints[i]={}
@@ -547,9 +553,12 @@ local function cmd_kmeanspp(model)
       local path = ipe.Path(model.attributes, { shape })
       path:set("stroke", color)
       path:set("dashstyle", "dashed")
-      model:creation("Cluster hull", path)
+      table.insert(new_objects, path)
     end
   end
+  
+  
+  batch_creation(model, "K-means++", point_colors, new_objects)
 end
 
 
@@ -694,7 +703,7 @@ end
 
 local function cmd_kmedoids(model)
   local page = model:page()
-  local points, sel_indices = collect_selected_points(page)
+  local points, selected = collect_selected_points(page)
 
   if #points == 0 then
     model:warning("Select mark symbols to cluster!")
@@ -715,37 +724,23 @@ local function cmd_kmedoids(model)
   end
 
   local colors = { "red", "blue", "green", "orange", "purple", "cyan", "brown", "magenta", "navy", "gray" }
+  local point_colors = {}
+  local new_objects = {}
+  local clusterPoints = {}
   
-  local t = { label = "K-medoids: color selected marks by cluster",
-              pno = model.pno,
-              vno = model.vno,
-              original = model:page():clone(),
-              final = model:page():clone(),
-              undo = revertOriginal,
-              redo = _G.revertFinal }
-  
-  local idx = 1
-  for i, obj, sel, layer in t.final:objects() do
-    if sel and obj:type() == "reference" then
-      local c = assign[idx]
-      local color = colors[((c - 1) % #colors) + 1]
-      obj:set("stroke", color)
-      obj:set("fill", color)
-      idx = idx + 1
-    end
+  for i, index in ipairs(selected) do
+    local col = assign[i]
+    point_colors[index] = colors[((col - 1) % #colors) + 1]
   end
-  
-  model:register(t) 
   
   for j = 1, k do -- Draws a cross at the point of each cluster's mediod
     local color = colors[((j - 1) % #colors) + 1]
     local stroke = ipe.Reference(model.attributes, "mark/cross(sx)", ipe.Vector(medoids[j][1] ,medoids[j][2]))
     stroke:set("stroke", color)
-    model:creation("Medoid", stroke)
+    table.insert(new_objects, stroke)
   end
   
   -- Gather points for convex hulls of clusters
-  local clusterPoints = {}
   for i=1, k do
     clusterPoints[i]={}
   end
@@ -771,10 +766,11 @@ local function cmd_kmedoids(model)
         local path = ipe.Path(model.attributes, { shape })
         path:set("stroke", color)
         path:set("dashstyle", "dashed")
-        model:creation("Cluster hull", path)
+        table.insert(new_objects, path)
       end
     end
   end
+  batch_creation(model, "K-medoids", point_colors, new_objects)
 end
 
 -- ========================================================================================
@@ -903,6 +899,7 @@ end
 
 
 
+
 function dbscan(model)
   local points = get_unique_selected_points(model)
   if #points == 0 then
@@ -922,16 +919,18 @@ function dbscan(model)
 
   model:warning("Clusters found: " .. #clusters)
 
+  local point_colors = {}
+  local new_objects = {}
+  local clusterPoints = {}
+
   -- Applying colors to points in their respective clusters
   for i, pt in ipairs(points) do
     if labels[i] ~= "Noise" and labels[i] > 0 then
       -- Pick a color based on Cluster ID
-      pt.obj:set("stroke", colors[(labels[i]-1) % #colors + 1])
-      model:page():replace(pt.idx, pt.obj)
+      point_colors[pt.idx] = colors[(labels[i]-1) % #colors + 1]
     else
       -- Mark outliers as gray
-      pt.obj:set("stroke", "gray")
-      model:page():replace(pt.idx, pt.obj)
+      point_colors[pt.idx] = "gray"
     end
   end
   
@@ -958,10 +957,11 @@ function dbscan(model)
       local path = ipe.Path(model.attributes, { shape })
       path:set("stroke", color)
       path:set("dashstyle", "dashed")
-      model:creation("Cluster hull", path)
+      table.insert(new_objects, path)
     end
   end
-
+  
+  batch_creation(model, "DBSCAN", point_colors, new_objects)
 end
 
 -- ========================================================================================
@@ -1216,20 +1216,21 @@ function hdbscan(model)
 
   model:warning("Clusters found: " .. #clusters)
 
+  local point_colors = {}
+  local new_objects = {}
+  local clusterPoints = {}
+
   -- Applying colors to points in their respective clusters
   for i, pt in ipairs(points) do
     if labels[i] ~= "Noise" and labels[i] > 0 then
       -- Pick a color based on Cluster ID
-      pt.obj:set("stroke", colors[(labels[i]-1) % #colors + 1])
-      model:page():replace(pt.idx, pt.obj)
+      point_colors[pt.idx] = colors[(labels[i]-1) % #colors + 1]
     else
       -- Mark outliers as gray
-      pt.obj:set("stroke", "gray")
-      model:page():replace(pt.idx, pt.obj)
+      point_colors[pt.idx] = "gray"
     end
   end
   
-  local clusterPoints = {}
   
   for i=1, #clusters do
     clusterPoints[i]={}
@@ -1252,17 +1253,23 @@ function hdbscan(model)
       local path = ipe.Path(model.attributes, { shape })
       path:set("stroke", color)
       path:set("dashstyle", "dashed")
-      model:creation("Cluster hull", path)
+      table.insert(new_objects, path)
     end
   end
+  batch_creation(model, "HDBSCAN", point_colors, new_objects)
 end
 
 -- ========================================================================================
 --                                      Complete Linkage
 -- ========================================================================================
+local function better_pair(a1, a2, b1, b2)
+  return a1 < b1 or (a1 == b1 and a2 < b2)
+end
+
+
 local function cmd_hierarchical(model, method)
   local page = model:page()
-  local points, sel_indices = collect_selected_points(page)
+  local points, selected = collect_selected_points(page)
 
   if #points == 0 then
     model:warning("Select mark symbols to cluster!")
@@ -1280,28 +1287,20 @@ local function cmd_hierarchical(model, method)
   local assign = method.cut(tree, k)
 
   local colors = { "red", "blue", "green", "orange", "purple", "cyan", "brown", "magenta", "navy", "gray" }
-  local t = { label = "Hierarchical",
-              pno = model.pno,
-              vno = model.vno,
-              original = model:page():clone(),
-              final = model:page():clone(),
-              undo = revertOriginal,
-              redo = _G.revertFinal }
-  
-  local idx = 1
-  for i, obj, sel in t.final:objects() do
-    if sel and obj:type() == "reference" then
-      obj:set("stroke", colors[((assign[idx] - 1) % #colors) + 1])
-      obj:set("fill", colors[((assign[idx] - 1) % #colors) + 1])
-      idx = idx + 1
-    end
-  end
-  model:register(t)
-  
+  local point_colors = {}
+  local new_objects = {}
   local clusterPoints = {}
+  
+  for i, index in ipairs(selected) do
+    local col = assign[i]
+    point_colors[index] = colors[((col - 1) % #colors) + 1]
+  end
+
   for i = 1, k do clusterPoints[i] = {} end
   for j, p in ipairs(points) do
-    table.insert(clusterPoints[assign[j]], { x = p[1], y = p[2] })
+    if assign[j] then
+      table.insert(clusterPoints[assign[j]], { x = p[1], y = p[2] })
+    end
   end
   for j = 1, k do
     if #clusterPoints[j] >= 3 then
@@ -1312,10 +1311,13 @@ local function cmd_hierarchical(model, method)
         local path = ipe.Path(model.attributes, { create_shape_from_vertices(verts, model) })
         path:set("stroke", colors[((j - 1) % #colors) + 1])
         path:set("dashstyle", "dashed")
-        model:creation("Cluster hull", path)
+        table.insert(new_objects, path)
       end
     end
   end
+  
+  batch_creation(model, "Hierarchical", point_colors, new_objects)
+  
 end
 
 local CompleteLinkage = {}
@@ -1478,11 +1480,6 @@ end
 -- ========================================================================================
 
 local SingleLinkage = {}
-
-local function better_pair(a1, a2, b1, b2)
-  return a1 < b1 or (a1 == b1 and a2 < b2)
-end
-
 
 local function cluster_distance_single(clusters, point_dist, id_a, id_b)
   local members_a = clusters[id_a].members
@@ -1737,14 +1734,14 @@ end
 local function cmd_meanshift(model)
   local page = model:page()
 
-local raw_points, sel_indices = collect_selected_points(page)
+  local raw_points, selected = collect_selected_points(page)
 
-if #raw_points == 0 then
-  model:warning("Select mark symbols to cluster!")
-  return
-end
+  if #raw_points == 0 then
+    model:warning("Select mark symbols to cluster!")
+    return
+  end
 
-local points = raw_points   
+  local points = raw_points   
   -- bandwidth suggestion
   local suggested = estimate_bandwidth(points) * 3
   model:warning("Suggested bandwidth: " .. string.format("%.2f", suggested))
@@ -1784,30 +1781,15 @@ local points = raw_points
   model:warning("Estimated clusters: " .. k_est)
 
   local colors = { "red","blue","green","orange","purple","cyan","brown","magenta","navy","gray" }
-
-  local t = {
-    label = "Mean Shift",
-    pno = model.pno,
-    vno = model.vno,
-    original = page:clone(),
-    final = page:clone(),
-    undo = revertOriginal,
-    redo = _G.revertFinal,
-  }
-
-  -- recolor points
-  local idx = 1
-  for i, obj, sel in t.final:objects() do
-    if sel and obj:type() == "reference" then
-      local c = assign[idx]
-      local col = colors[((c - 1) % #colors) + 1]
-      obj:set("stroke", col)
-      obj:set("fill", col)
-      idx = idx + 1
-    end
+  local point_colors = {}
+  local new_objects = {}
+  local clusterPoints = {}
+  
+  
+  for i, index in ipairs(selected) do
+    local col = assign[i]
+    point_colors[index] = colors[((col - 1) % #colors) + 1]
   end
-
-  model:register(t)
 
   -- draw cluster centers
   for j = 1, #centers do
@@ -1818,11 +1800,10 @@ local points = raw_points
       ipe.Vector(centers[j][1], centers[j][2])
     )
     ref:set("stroke", col)
-    model:creation("Mean Shift Center", ref)
+    table.insert(new_objects, ref)
   end
   
   -- Convex hulls
-  local clusterPoints = {}
   for j, p in ipairs(points) do
     local c = assign[j]
     if c then
@@ -1844,10 +1825,11 @@ local points = raw_points
         local path = ipe.Path(model.attributes, { shape })
         path:set("stroke", color)
         path:set("dashstyle", "dashed")
-        model:creation("Cluster hull", path)
+        table.insert(new_objects, path)
       end
     end
   end
+  batch_creation(model, "Mean Shift", point_colors, new_objects)
 end
 
 -- methods that get passed to IPE
