@@ -201,7 +201,7 @@ function k_nearest_neighbor(model)
 end
 
 function yao_graph(model)
-  local k =get_k_from_user(model,"Input numbert of sectors: ") 
+  local k =get_k_from_user(model,"Input number of sectors: ") 
   if k  then run(model, "yao", k) end
 end
 
