@@ -1,6 +1,6 @@
 # Ipelets Full Library 
 1. This is a collection of all Ipelets from the SoCG media 2024, 2025, and 2026
-2. SoCG 2026 corresponds to the files CLustering.lua and NeighborhoodGraphs.lua
+2. SoCG 2026 corresponds to the files Clustering.lua and NeighborhoodGraphs.lua
 
 ## Ipe Installation
 1. Go to [The Ipe extensible drawing editor (otfried.org)](https://ipe.otfried.org/)
