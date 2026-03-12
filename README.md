@@ -27,7 +27,7 @@ To use the Ipelets:
 
  
 
-(a) Place a point set in Ipe, (b) select the points, (c) choose a graph from the  ``Ipelets'' menu, (d) enter a parameter value if prompted, (e) the resulting graph is drawn automatically.
+(a) Place a point set in Ipe, (b) select the points (click "s" then hold and drag), (c) choose a graph from the  ``Ipelets'' menu, (d) enter a parameter value if prompted, (e) the resulting graph is drawn automatically.
 
 ## 📜 License
 This project is licensed under the **MIT License**.
