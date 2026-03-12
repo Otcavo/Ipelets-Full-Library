@@ -23,7 +23,7 @@ To use the Ipelets:
 - Select the desired operation.
   
   
-<img width="3025" height="3496" alt="Instructions" src="https://github.com/user-attachments/assets/c6de5128-3044-4753-aded-9685a2e83a77" />
+<img width="2000" height="2313" alt="Instructions" src="https://github.com/user-attachments/assets/c6de5128-3044-4753-aded-9685a2e83a77" />
 
  
 
