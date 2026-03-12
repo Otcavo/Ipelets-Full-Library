@@ -22,7 +22,8 @@ To use the Ipelets:
 - Navigate to the **Ipelets** menu.
 - Select the desired operation.
   
-  <img width="3025" height="3496" alt="Instructions" src="https://github.com/user-attachments/assets/d6875f0c-25d5-4d90-9f54-dbf39e3ff621" />
+  
+<img width="3025" height="3496" alt="Instructions" src="https://github.com/user-attachments/assets/c6de5128-3044-4753-aded-9685a2e83a77" />
 
  
 
