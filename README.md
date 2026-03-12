@@ -21,6 +21,8 @@ To use the Ipelets:
 - Open **Ipe**.
 - Navigate to the **Ipelets** menu.
 - Select the desired operation.
+  
+[Instructions.pdf](https://github.com/user-attachments/files/25944869/Instructions.pdf)
 
 ## 📜 License
 This project is licensed under the **MIT License**.
