@@ -12,6 +12,11 @@
    
 <img width="2000" height="726" alt="432998094-91788102-73e8-4e10-9ff9-42aaaf9789e3" src="https://github.com/user-attachments/assets/a0ddfc1c-54b7-485b-a53a-e879e373ac30" />
 
+## Opening Ipe
+
+- **Windows**: Unzip the downloaded package, open the `bin` folder inside, and run the `ipe.exe` executable.
+- **Mac**: Copy `Ipe.app` to your Applications folder. Note: MacOS may show a security warning — Control-Click the Ipe icon and choose "Open" to bypass it.
+- **Linux**: Install via your package manager or as a [flatpak](https://flathub.org/apps/org.otfried.Ipe), then run `ipe` from the terminal.
 
 ## ▶️ Usage
 To use the Ipelets:
