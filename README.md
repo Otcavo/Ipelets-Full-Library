@@ -18,7 +18,7 @@
 - **Mac**: Copy `Ipe.app` to your Applications folder. Note: MacOS may show a security warning — Control-Click the Ipe icon and choose "Open" to bypass it.
 - **Linux**: Install via your package manager or as a [flatpak](https://flathub.org/apps/org.otfried.Ipe), then run `ipe` from the terminal.
 
-## ▶️ Usage
+## Usage
 To use the Ipelets:
 - Download the Ipelet file of your choice
 - Locate the Ipelets folder on your machine
