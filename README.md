@@ -22,7 +22,9 @@ To use the Ipelets:
 - Navigate to the **Ipelets** menu.
 - Select the desired operation.
   
-[Instructions.pdf](https://github.com/user-attachments/files/25944869/Instructions.pdf)
+  <img width="3025" height="3496" alt="Instructions" src="https://github.com/user-attachments/assets/4f42a4c3-a171-417e-831c-e78014c3c095" />
+
+(a) Place a point set in Ipe, (b) select the points, (c) choose a graph from the  ``Ipelets'' menu, (d) enter a parameter value if prompted, (e) the resulting graph is drawn automatically.
 
 ## 📜 License
 This project is licensed under the **MIT License**.
