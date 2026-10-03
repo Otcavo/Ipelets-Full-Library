@@ -23,12 +23,16 @@ function not_in_table(vectors, vector_comp)
     return flag
 end
 
-function create_shape_from_vertices(v, model)
-    local shape = { type = "curve", closed = true, }
+-- closed defaults to true (triangle/carpet); pass false for open polylines (dragon)
+function create_shape_from_vertices(v, model, closed)
+    if closed == nil then closed = true end
+    local shape = { type = "curve", closed = closed, }
     for i = 1, #v - 1 do
         table.insert(shape, { type = "segment", v[i], v[i + 1] })
     end
-    table.insert(shape, { type = "segment", v[#v], v[1] })
+    if closed then
+        table.insert(shape, { type = "segment", v[#v], v[1] })
+    end
     return shape
 end
 
@@ -140,7 +144,7 @@ end
 -- Sierpinski's Triangle
 -- ---------------------------------------------------------------------------
 
-function sierpinski_triangle(v, iterations, model)
+function sierpinski_triangle(v, iterations, model, objs)
     if iterations > 0 then
         local p12 = midpoint(v[1], v[2])
         local p13 = midpoint(v[1], v[3])
@@ -148,11 +152,11 @@ function sierpinski_triangle(v, iterations, model)
         
         local shape = create_shape_from_vertices({ p12, p13, p23 }, model)
 
-        model:creation(1, ipe.Path(model.attributes, {shape}))
+        table.insert(objs, ipe.Path(model.attributes, {shape}))
         
-        sierpinski_triangle({ v[1], p12, p13 }, iterations - 1, model)
-        sierpinski_triangle({ v[2], p12, p23 }, iterations - 1, model)
-        sierpinski_triangle({ v[3], p13, p23 }, iterations - 1, model)
+        sierpinski_triangle({ v[1], p12, p13 }, iterations - 1, model, objs)
+        sierpinski_triangle({ v[2], p12, p23 }, iterations - 1, model, objs)
+        sierpinski_triangle({ v[3], p13, p23 }, iterations - 1, model, objs)
     end 
 end
 
@@ -172,14 +176,18 @@ function sierpinski_triangle_run(model)
         return
     end
 
-    sierpinski_triangle(vu, depth, model)
+    local objs = {}
+    sierpinski_triangle(vu, depth, model, objs)
+    if #objs > 0 then
+        model:creation(1, ipe.Group(objs))
+    end
 end
 
 -- ---------------------------------------------------------------------------
 -- Sierpinski's Carpet
 -- ---------------------------------------------------------------------------
 
-function sierpinski_carpet(v, iterations, model)
+function sierpinski_carpet(v, iterations, model, objs)
 
     if iterations > 0 then
         -- distance vectors for splitting v[1] to v[2] to thirds
@@ -214,16 +222,16 @@ function sierpinski_carpet(v, iterations, model)
         local obj = ipe.Path(model.attributes, { shape })
         -- obj:set("fill", "black")
         -- obj:set("pathmode", "filled")
-        model:creation(1, obj)
+        table.insert(objs, obj)
         
-        sierpinski_carpet({v[1], p1to2t, m1, p1to4t}, iterations - 1, model)
-        sierpinski_carpet({p1to2t, p2to1t, m2, m1}, iterations - 1, model)
-        sierpinski_carpet({p2to1t, v[2], p2to3t, m2}, iterations - 1, model)
-        sierpinski_carpet({m2, p2to3t, p3to2t, m3}, iterations - 1, model)
-        sierpinski_carpet({m3, p3to2t, v[3], p3to4t}, iterations - 1, model)
-        sierpinski_carpet({m4, m3, p3to4t, p4to3t}, iterations - 1, model)
-        sierpinski_carpet({p4to1t, m4, p4to3t, v[4]}, iterations - 1, model)
-        sierpinski_carpet({p1to4t, m1, m4, p4to1t}, iterations - 1, model)
+        sierpinski_carpet({v[1], p1to2t, m1, p1to4t}, iterations - 1, model, objs)
+        sierpinski_carpet({p1to2t, p2to1t, m2, m1}, iterations - 1, model, objs)
+        sierpinski_carpet({p2to1t, v[2], p2to3t, m2}, iterations - 1, model, objs)
+        sierpinski_carpet({m2, p2to3t, p3to2t, m3}, iterations - 1, model, objs)
+        sierpinski_carpet({m3, p3to2t, v[3], p3to4t}, iterations - 1, model, objs)
+        sierpinski_carpet({m4, m3, p3to4t, p4to3t}, iterations - 1, model, objs)
+        sierpinski_carpet({p4to1t, m4, p4to3t, v[4]}, iterations - 1, model, objs)
+        sierpinski_carpet({p1to4t, m1, m4, p4to1t}, iterations - 1, model, objs)
     end
 end
 
@@ -242,7 +250,11 @@ function sierpinski_carpet_run(model)
         return
     end
 
-    sierpinski_carpet(vu, depth, model)
+    local objs = {}
+    sierpinski_carpet(vu, depth, model, objs)
+    if #objs > 0 then
+        model:creation(1, ipe.Group(objs))
+    end
 end
 
 
@@ -279,6 +291,9 @@ function dragon(v, iterations)
 
         -- the vertices of the sides get merged to one big table.
         -- this is then drawn!
+        -- t1 ends at v[2] and t2 starts at v[2]; drop the duplicate
+        -- so we don't create zero-length segments
+        table.remove(t2, 1)
         return merge(t1, t2)
     else
         -- vertices at lowest level simply returned.
@@ -307,7 +322,8 @@ function dragon_run(model)
     if string.match(out, "^%d+$") then
         local dr = dragon(vu, tonumber(out))
 
-        local shape = create_shape_from_vertices(dr, model)
+        -- the dragon curve is an open path from v[1] to v[3]; don't close it
+        local shape = create_shape_from_vertices(dr, model, false)
         local obj = ipe.Path(model.attributes, { shape })
         model:creation(1, obj)
     else

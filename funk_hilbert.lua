@@ -21,7 +21,8 @@ do
     local unique_points
     local get_polygon_vertices_and_segments
     local copy_table
-    local get_pt_and_polygon_selection
+    local get_pts_and_polygon_selection
+    local get_radius
     local create_ray
     local create_rays
     local intersect
@@ -130,34 +131,61 @@ do
         return new_table
     end
 
-    function get_pt_and_polygon_selection(model)
+    function get_pts_and_polygon_selection(model)
 
         local p = model:page()
 
-        if not p:hasSelection() then incorrect("Please select a convex polygon and a point", model) return end
+        if not p:hasSelection() then incorrect("Please select a convex polygon and at least one point", model) return end
 
-        local referenceObject
+        local referenceObjects = {}
         local pathObject
-        local count = 0
 
         for _, obj, sel, _ in p:objects() do
         if sel then
-            count = count + 1
             if obj:type() == "path" then pathObject = obj end  -- assign pathObject
-            if obj:type() == "reference" then referenceObject = obj end -- assign referenceObject
+            if obj:type() == "reference" then table.insert(referenceObjects, obj) end -- collect all selected points
             end
         end
 
-        if not referenceObject or not pathObject then incorrect("Please select a convex polygon and a point", model) return end
+        if #referenceObjects == 0 or not pathObject then incorrect("Please select a convex polygon and at least one point", model) return end
 
-        local point = referenceObject:matrix() * referenceObject:position()
+        local points = {}
+        for _, referenceObject in ipairs(referenceObjects) do
+            table.insert(points, referenceObject:matrix() * referenceObject:position())
+        end
         local vertices, segments, segments_start_finish = get_polygon_vertices_and_segments(pathObject, model)
 
         local poly1_convex = is_convex(copy_table(vertices))
         if poly1_convex == false then incorrect("Polygon must be convex", model) return end
-        if not is_in_polygon(point, copy_table(vertices)) then incorrect("Point must be inside the polygon", model) return end
+        for _, point in ipairs(points) do
+            if not is_in_polygon(point, copy_table(vertices)) then incorrect("All points must be inside the polygon", model) return end
+        end
 
-        return point, vertices, segments, segments_start_finish
+        return points, vertices, segments, segments_start_finish
+    end
+
+    function get_radius(model)
+        -- Ask for the Funk-ball radius R. Falls back to 1 (the previous
+        -- hardcoded value) if the dialog is cancelled or the entry is not
+        -- a positive number.
+        local str
+        if ipeui.getString ~= nil then
+            str = ipeui.getString(model.ui, "Enter Funk ball radius (default 1):")
+        else
+            str = model:getString("Enter Funk ball radius (default 1):")
+        end
+
+        if not str or str:match("^%s*$") then
+            return 1
+        end
+
+        local r = tonumber(str)
+        if not r or r <= 0 then
+            incorrect("Radius must be a positive number; using default radius 1", model)
+            return 1
+        end
+
+        return r
     end
 
     function create_ray(v,c, model)
@@ -211,17 +239,17 @@ do
         return spoke_obj_list
     end
 
-    function compute_K_constants(a,d)
+    function compute_K_constants(a,d,R)
         local top_fraction = (a.x-d.x)*(a.x-d.x) + (a.y-d.y)*(a.y-d.y)
-        local bottom_fraction = math.exp(2)
+        local bottom_fraction = math.exp(2*R)
         local K1 = top_fraction / bottom_fraction
         local K2 = (a.y-d.y) / (a.x-d.x)
-        local K3 = (math.exp(1)*math.exp(1)) * ((a.x-d.x)*(a.x-d.x) + (a.y-d.y)*(a.y-d.y))
+        local K3 = (math.exp(R)*math.exp(R)) * ((a.x-d.x)*(a.x-d.x) + (a.y-d.y)*(a.y-d.y))
         return K1, K2, K3
     end
 
-    function get_point_vertical(a,d)
-        local K1,_ = compute_K_constants(a,d)
+    function get_point_vertical(a,d,R)
+        local K1,_ = compute_K_constants(a,d,R)
         local A = 1
         local B = -2*d.y
         local C = (a.x*a.x) - 2*d.x*a.x + (d.x*d.x) + (d.y*d.y) - K1
@@ -240,8 +268,8 @@ do
         return ipe.Vector(x,y)
     end
 
-    function get_point_vertical_reverse(a,d)
-        local _, _, K3 = compute_K_constants(a,d)
+    function get_point_vertical_reverse(a,d,R)
+        local _, _, K3 = compute_K_constants(a,d,R)
         local A = 1
         local B = -2*d.y
         local C = (d.y*d.y) - K3
@@ -260,8 +288,8 @@ do
         return ipe.Vector(x,y)
     end
 
-    function get_point_forward(a,d)
-        local K1,K2, _ = compute_K_constants(a,d)
+    function get_point_forward(a,d,R)
+        local K1,K2, _ = compute_K_constants(a,d,R)
         local A = 1 + (K2*K2)
         local B = -2*d.x-2*(K2*K2)*a.x+2*K2*a.y-2*d.y*K2
         local C = (d.x*d.x) + (K2*K2) * (a.x*a.x) + (a.y*a.y) - 2*K2*a.x*a.y+2*d.y*K2*a.x-2*d.y*a.y+(d.y*d.y)-K1
@@ -276,8 +304,8 @@ do
         return ipe.Vector(x_1,y_1), ipe.Vector(x_2, y_2)
     end
 
-    function get_point_reverse(a,d)
-        local _,K2,K3 = compute_K_constants(a,d)
+    function get_point_reverse(a,d,R)
+        local _,K2,K3 = compute_K_constants(a,d,R)
         local A = 1 + (K2*K2)
         local B = -2 * d.x - 2 * (K2*K2) * d.x
         local C = (d.x*d.x) + (K2*K2) * (d.x*d.x) - K3
@@ -293,7 +321,7 @@ do
 
     end
 
-    function get_points_on_spokes_forward(vertex_intersect, center)
+    function get_points_on_spokes_forward(vertex_intersect, center, R)
         
         local points_on_spokes = {}
 
@@ -302,10 +330,10 @@ do
             local vertex = ipe.Vector(vertex_intersect[i][1], vertex_intersect[i][2])
 
             if center.x == vertex.x then
-                local point = get_point_vertical(center, vertex)
+                local point = get_point_vertical(center, vertex, R)
                 table.insert(points_on_spokes, point)
             else
-                local point1, point2 = get_point_forward(center, vertex)
+                local point1, point2 = get_point_forward(center, vertex, R)
                 
                 if vertex.x > center.x  then
                     table.insert(points_on_spokes, point2)
@@ -318,7 +346,7 @@ do
     end
 
 
-    function get_points_on_spokes_reverse(vertex_intersect, center, model)
+    function get_points_on_spokes_reverse(vertex_intersect, center, R, model)
         
         local points_on_spokes = {}
 
@@ -326,10 +354,10 @@ do
 
             local intersection = ipe.Vector(vertex_intersect[i][1], vertex_intersect[i][2])
             if center.x == intersection.x then
-                local point = get_point_vertical_reverse(center, intersection)
+                local point = get_point_vertical_reverse(center, intersection, R)
                 table.insert(points_on_spokes, point)
             else
-                local point1, point2 = get_point_reverse(center, intersection, model)
+                local point1, point2 = get_point_reverse(center, intersection, R)
                 if center.x < intersection.x then
                     table.insert(points_on_spokes, point2)
                 else
@@ -392,54 +420,83 @@ do
     end
 
     function run_forward_spokes(model)
-        if not get_pt_and_polygon_selection(model) then return end
-        local center, vertices, _, segments_start_finish = get_pt_and_polygon_selection(model)
-        local v_rays = create_rays(vertices, center, model)
-        local spokes, vertex_intersect = get_spokes(v_rays, segments_start_finish, model)
-        
-        local spoke_obj_list = get_spokes_path_objs(spokes, model)
-        local points_on_spokes = get_points_on_spokes_forward(vertex_intersect, center)
-        local shape, _ = convex_hull(points_on_spokes)
-        table.insert(spoke_obj_list, ipe.Path(model.attributes, { shape }))
-        model:creation("points on spokes", ipe.Group(spoke_obj_list) )
+        if not get_pts_and_polygon_selection(model) then return end
+        local centers, vertices, _, segments_start_finish = get_pts_and_polygon_selection(model)
+        local radius = get_radius(model)
+
+        local all_objs = {}
+        for _, center in ipairs(centers) do
+            local v_rays = create_rays(vertices, center, model)
+            local spokes, vertex_intersect = get_spokes(v_rays, segments_start_finish, model)
+            for _, obj in ipairs(get_spokes_path_objs(spokes, model)) do table.insert(all_objs, obj) end
+            local points_on_spokes = get_points_on_spokes_forward(vertex_intersect, center, radius)
+            local shape, _ = convex_hull(points_on_spokes)
+            table.insert(all_objs, ipe.Path(model.attributes, { shape }))
+        end
+
+        model:creation("points on spokes", ipe.Group(all_objs))
     end
 
     function run_forward_without_spokes(model)
-        if not get_pt_and_polygon_selection(model) then return end
-        local center, vertices, _, segments_start_finish = get_pt_and_polygon_selection(model)
-        local v_rays = create_rays(vertices, center, model)
-        local spokes, vertex_intersect = get_spokes(v_rays, segments_start_finish, model)
-        
-        local points_on_spokes = get_points_on_spokes_forward(vertex_intersect, center)
-        local shape, _ = convex_hull(points_on_spokes)
-        
-        model:creation("points on spokes", ipe.Path(model.attributes, { shape }))
+        if not get_pts_and_polygon_selection(model) then return end
+        local centers, vertices, _, segments_start_finish = get_pts_and_polygon_selection(model)
+        local radius = get_radius(model)
+
+        local all_objs = {}
+        for _, center in ipairs(centers) do
+            local v_rays = create_rays(vertices, center, model)
+            local spokes, vertex_intersect = get_spokes(v_rays, segments_start_finish, model)
+            local points_on_spokes = get_points_on_spokes_forward(vertex_intersect, center, radius)
+            local shape, _ = convex_hull(points_on_spokes)
+            table.insert(all_objs, ipe.Path(model.attributes, { shape }))
+        end
+
+        if #all_objs == 1 then
+            model:creation("points on spokes", all_objs[1])
+        else
+            model:creation("points on spokes", ipe.Group(all_objs))
+        end
     end
 
     function run_reverse_spokes(model)
-        if not get_pt_and_polygon_selection(model) then return end
-        local center, vertices, _, segments_start_finish = get_pt_and_polygon_selection(model)
-        local v_rays = create_rays(vertices, center, model)
-        local spokes, vertex_intersect = get_spokes(v_rays, segments_start_finish, model)
-        
-        local spoke_obj_list = get_spokes_path_objs(spokes, model)
-        local points_on_spokes = get_points_on_spokes_reverse(vertex_intersect, center)
-        local shape, _ = convex_hull(points_on_spokes)
-        table.insert(spoke_obj_list, ipe.Path(model.attributes, { shape }))
-        model:creation("points on spokes", ipe.Group(spoke_obj_list) )
+        if not get_pts_and_polygon_selection(model) then return end
+        local centers, vertices, _, segments_start_finish = get_pts_and_polygon_selection(model)
+        local radius = get_radius(model)
+
+        local all_objs = {}
+        for _, center in ipairs(centers) do
+            local v_rays = create_rays(vertices, center, model)
+            local spokes, vertex_intersect = get_spokes(v_rays, segments_start_finish, model)
+            for _, obj in ipairs(get_spokes_path_objs(spokes, model)) do table.insert(all_objs, obj) end
+            local points_on_spokes = get_points_on_spokes_reverse(vertex_intersect, center, radius, model)
+            local shape, _ = convex_hull(points_on_spokes)
+            table.insert(all_objs, ipe.Path(model.attributes, { shape }))
+        end
+
+        model:creation("points on spokes", ipe.Group(all_objs))
     end
 
     function run_reverse_without_spokes(model)
-        if not get_pt_and_polygon_selection(model) then return end
-        local center, vertices, _, segments_start_finish = get_pt_and_polygon_selection(model)
-        local v_rays = create_rays(vertices, center, model)
-        local spokes, vertex_intersect = get_spokes(v_rays, segments_start_finish, model)
-        
-        local points_on_spokes = get_points_on_spokes_reverse(vertex_intersect, center)
-        local shape, _ = convex_hull(points_on_spokes)
-        
-        model:creation("points on spokes", ipe.Path(model.attributes, { shape }))
+        if not get_pts_and_polygon_selection(model) then return end
+        local centers, vertices, _, segments_start_finish = get_pts_and_polygon_selection(model)
+        local radius = get_radius(model)
+
+        local all_objs = {}
+        for _, center in ipairs(centers) do
+            local v_rays = create_rays(vertices, center, model)
+            local spokes, vertex_intersect = get_spokes(v_rays, segments_start_finish, model)
+            local points_on_spokes = get_points_on_spokes_reverse(vertex_intersect, center, radius, model)
+            local shape, _ = convex_hull(points_on_spokes)
+            table.insert(all_objs, ipe.Path(model.attributes, { shape }))
+        end
+
+        if #all_objs == 1 then
+            model:creation("points on spokes", all_objs[1])
+        else
+            model:creation("points on spokes", ipe.Group(all_objs))
+        end
     end
+
 end
 
 -- ---------------------------------------------------------------------------
@@ -455,7 +512,7 @@ do
     local unique_points
     local get_polygon_vertices_and_segments
     local copy_table
-    local get_pt_and_polygon_selection
+    local get_pts_and_polygon_selection
     local create_ray
     local create_rays
     local intersect
@@ -466,6 +523,7 @@ do
     local get_point_vertical
     local get_point
     local get_points_on_spokes
+    local get_radius
     local create_shape_from_vertices
     local orient
     local convex_hull
@@ -561,35 +619,41 @@ do
         return new_table
     end
 
-    function get_pt_and_polygon_selection(model)
+    function get_pts_and_polygon_selection(model)
 
         local p = model:page()
 
-        if not p:hasSelection() then incorrect("Please select a convex polygon and a point", model) return end
+        if not p:hasSelection() then incorrect("Please select a convex polygon and at least one point", model) return end
 
-        local referenceObject
+        local referenceObjects = {}
         local pathObject
-        local count = 0
 
         for _, obj, sel, _ in p:objects() do
         if sel then
-            count = count + 1
             if obj:type() == "path" then pathObject = obj end  -- assign pathObject
-            if obj:type() == "reference" then referenceObject = obj end -- assign referenceObject
+            if obj:type() == "reference" then table.insert(referenceObjects, obj) end -- collect all selected points
             end
         end
 
-        if not referenceObject or not pathObject then incorrect("Please select a convex polygon and a point", model) return end
+        if #referenceObjects == 0 or not pathObject then incorrect("Please select a convex polygon and at least one point", model) return end
 
-        local point = referenceObject:matrix() * referenceObject:position()
+        local points = {}
+        for _, referenceObject in ipairs(referenceObjects) do
+            table.insert(points, referenceObject:matrix() * referenceObject:position())
+        end
+
         local vertices, segments, segments_start_finish = get_polygon_vertices_and_segments(pathObject, model)
 
         local poly1_convex = is_convex(copy_table(vertices))
         if poly1_convex == false then incorrect("Polygon must be convex", model) return end
-        if not is_in_polygon(point, copy_table(vertices)) then incorrect("Point must be inside the polygon", model) return end
 
-        return point, vertices, segments, segments_start_finish
+        for _, point in ipairs(points) do
+            if not is_in_polygon(point, copy_table(vertices)) then incorrect("All points must be inside the polygon", model) return end
+        end
+
+        return points, vertices, segments, segments_start_finish
     end
+
 
     function create_ray(v,c, model)
         return ipe.LineThrough(v, c)
@@ -690,7 +754,31 @@ do
 
         return ipe.Vector(x_1,y_1), ipe.Vector(x_2, y_2)
     end
-    
+
+    function get_radius(model)
+        -- Ask the user for the Hilbert-ball radius R. Falls back to 1
+        -- (the previous hardcoded value) if the dialog is cancelled or
+        -- the entered text isn't a number.
+        local str
+        if ipeui.getString ~= nil then
+            str = ipeui.getString(model.ui, "Enter Hilbert ball radius (default 1):")
+        else
+            str = model:getString("Enter Hilbert ball radius (default 1):")
+        end
+
+        if not str or str:match("^%s*$") then
+            return 1
+        end
+
+        local r = tonumber(str)
+        if not r or r <= 0 then
+            incorrect("Radius must be a positive number; using default radius 1", model)
+            return 1
+        end
+
+        return r
+    end
+
     function get_points_on_spokes(vertex_intersect, center, radius, polygon, model)
         
         local points_on_spokes = {}
@@ -777,29 +865,48 @@ do
     end
 
     function run_spokes(model)
-        if not get_pt_and_polygon_selection(model) then return end
-        local center, vertices, _, segments_start_finish = get_pt_and_polygon_selection(model)
-        local v_rays = create_rays(vertices, center, model)
-        local spokes, vertex_intersect = get_spokes(v_rays, segments_start_finish, model)
-        
-        local spoke_obj_list = get_spokes_path_objs(spokes, model)
-        local points_on_spokes = get_points_on_spokes(vertex_intersect, center, 1, vertices, model)
-        local shape, _ = convex_hull(points_on_spokes)
-        table.insert(spoke_obj_list, ipe.Path(model.attributes, { shape }))
+        if not get_pts_and_polygon_selection(model) then return end
+        local centers, vertices, _, segments_start_finish = get_pts_and_polygon_selection(model)
+        local radius = get_radius(model)
 
-        model:creation("points on spokes", ipe.Group(spoke_obj_list) )
+        local all_objs = {}
+
+        for _, center in ipairs(centers) do
+            local v_rays = create_rays(vertices, center, model)
+            local spokes, vertex_intersect = get_spokes(v_rays, segments_start_finish, model)
+
+            local spoke_obj_list = get_spokes_path_objs(spokes, model)
+            local points_on_spokes = get_points_on_spokes(vertex_intersect, center, radius, vertices, model)
+            local shape, _ = convex_hull(points_on_spokes)
+
+            for _, obj in ipairs(spoke_obj_list) do table.insert(all_objs, obj) end
+            table.insert(all_objs, ipe.Path(model.attributes, { shape }))
+        end
+
+        model:creation("points on spokes", ipe.Group(all_objs) )
     end
 
     function run_without_spokes(model)
-        if not get_pt_and_polygon_selection(model) then return end
-        local center, vertices, _, segments_start_finish = get_pt_and_polygon_selection(model)
-        local v_rays = create_rays(vertices, center, model)
-        local _, vertex_intersect = get_spokes(v_rays, segments_start_finish, model)
-        
-        local points_on_spokes = get_points_on_spokes(vertex_intersect, center, 1, vertices, model)
-        local shape, _ = convex_hull(points_on_spokes)
+        if not get_pts_and_polygon_selection(model) then return end
+        local centers, vertices, _, segments_start_finish = get_pts_and_polygon_selection(model)
+        local radius = get_radius(model)
 
-        model:creation("points on spokes", ipe.Path(model.attributes, { shape }) )
+        local ball_objs = {}
+
+        for _, center in ipairs(centers) do
+            local v_rays = create_rays(vertices, center, model)
+            local _, vertex_intersect = get_spokes(v_rays, segments_start_finish, model)
+
+            local points_on_spokes = get_points_on_spokes(vertex_intersect, center, radius, vertices, model)
+            local shape, _ = convex_hull(points_on_spokes)
+            table.insert(ball_objs, ipe.Path(model.attributes, { shape }))
+        end
+
+        if #ball_objs == 1 then
+            model:creation("points on spokes", ball_objs[1])
+        else
+            model:creation("points on spokes", ipe.Group(ball_objs))
+        end
     end
 end
 
@@ -1311,4 +1418,3 @@ methods = {
     { label = "MST with Hilbert Distance", run = function(model) runWithDistanceShape(model, hilbertDistance) end },
     { label = "MST with Minimum Funk Distance", run = function(model) runWithDistanceShape(model, minimumFunkDistance) end },
 }
-

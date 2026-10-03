@@ -505,7 +505,7 @@ function run(model, version, k, epsi )
     for i, point1 in ipairs(vertices) do
       for j, point2 in ipairs(vertices) do
         if i < j then 
-          if inTable(point2, kNearest[point1]) ~= inTable(point1, kNearest[point2]) then
+          if (not not inTable(point2, kNearest[point1])) ~= (not not inTable(point1, kNearest[point2])) then
             table.insert(edges, { a = point1, b = point2 })
           end
         end
